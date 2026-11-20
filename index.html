@@ -1,0 +1,304 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Fruit Recognition AI</title>
+
+    <!-- TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+
+    <!-- Teachable Machine Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: linear-gradient(120deg, #e0f2fe, #dcfce7);
+            text-align: center;
+            margin: 0;
+            padding: 25px;
+        }
+
+        .container {
+            background: white;
+            max-width: 650px;
+            margin: auto;
+            padding: 25px;
+            border-radius: 18px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.12);
+        }
+
+        h1 {
+            color: #166534;
+        }
+
+        p {
+            color: #555;
+        }
+
+        button {
+            background: #15803d;
+            color: white;
+            padding: 12px 22px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 8px;
+            font-size: 15px;
+        }
+
+        button:hover {
+            background: #166534;
+        }
+
+        input {
+            margin: 15px;
+        }
+
+        #webcam-container,
+        #image-container {
+            margin: 20px auto;
+        }
+
+        canvas, #preview {
+            max-width: 100%;
+            border-radius: 12px;
+        }
+
+        .prediction {
+            background: #f0fdf4;
+            padding: 15px;
+            margin: 10px;
+            border-radius: 10px;
+            font-weight: bold;
+        }
+
+        #result {
+            font-size: 24px;
+            color: #166534;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+
+        .footer {
+            margin-top: 25px;
+            color: #777;
+            font-size: 13px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>🍎 Fruit Recognition AI 🍊</h1>
+
+    <p>
+        Artificial Intelligence Based Fruit Classification
+    </p>
+
+    <button onclick="startCamera()">Start Webcam</button>
+    <button onclick="stopCamera()">Stop Webcam</button>
+
+    <h3>OR Upload a Fruit Image</h3>
+
+    <input type="file"
+           id="imageUpload"
+           accept="image/*"
+           onchange="predictImage(event)">
+
+    <div id="webcam-container"></div>
+
+    <div id="image-container"></div>
+
+    <div id="result">Waiting for an image...</div>
+
+    <div id="label-container"></div>
+
+    <div class="footer">
+        Powered by Google Teachable Machine and TensorFlow.js
+    </div>
+
+</div>
+
+<script>
+
+    // IMPORTANT: Model folder location
+    const MODEL_URL = "./";
+
+    let model;
+    let webcam;
+    let cameraRunning = false;
+    let animationId = null;
+
+    // Load trained model
+    async function loadModel() {
+
+        if (!model) {
+            model = await tmImage.load(
+                MODEL_URL + "model.json",
+                MODEL_URL + "metadata.json"
+            );
+        }
+
+        return model;
+    }
+
+    // Start Webcam
+    async function startCamera() {
+
+        try {
+
+            await loadModel();
+
+            if (cameraRunning) return;
+
+            webcam = new tmImage.Webcam(320, 320, true);
+
+            await webcam.setup();
+            await webcam.play();
+
+            cameraRunning = true;
+
+            document.getElementById("webcam-container")
+                .innerHTML = "";
+
+            document.getElementById("webcam-container")
+                .appendChild(webcam.canvas);
+
+            document.getElementById("image-container")
+                .innerHTML = "";
+
+            webcamLoop();
+
+        } catch (error) {
+
+            alert("Camera or model loading failed. Check camera permission and model files.");
+
+            console.error(error);
+
+        }
+    }
+
+    // Webcam prediction loop
+    async function webcamLoop() {
+
+        if (!cameraRunning) return;
+
+        webcam.update();
+
+        await predict(webcam.canvas);
+
+        if (cameraRunning) {
+            animationId = requestAnimationFrame(webcamLoop);
+        }
+    }
+
+    // Stop Webcam
+    function stopCamera() {
+
+        cameraRunning = false;
+
+        if (animationId) {
+            cancelAnimationFrame(animationId);
+            animationId = null;
+        }
+
+        if (webcam) {
+            webcam.stop();
+        }
+
+        document.getElementById("webcam-container")
+            .innerHTML = "";
+
+        document.getElementById("result")
+            .innerHTML = "Camera stopped";
+    }
+
+    // Upload image prediction
+    async function predictImage(event) {
+
+        try {
+
+            await loadModel();
+
+            stopCamera();
+
+            const file = event.target.files[0];
+
+            if (!file) return;
+
+            if (!file.type.startsWith("image/")) {
+                alert("Please select a valid image.");
+                return;
+            }
+
+            const image = document.createElement("img");
+
+            image.id = "preview";
+            image.src = URL.createObjectURL(file);
+
+            image.onload = async function() {
+
+                document.getElementById("image-container")
+                    .innerHTML = "";
+
+                document.getElementById("image-container")
+                    .appendChild(image);
+
+                await predict(image);
+
+            };
+
+        } catch (error) {
+
+            alert("Image prediction failed. Check the model files.");
+
+            console.error(error);
+
+        }
+    }
+
+    // Predict fruit
+    async function predict(input) {
+
+        const predictions = await model.predict(input);
+
+        predictions.sort((a, b) =>
+            b.probability - a.probability
+        );
+
+        const best = predictions[0];
+
+        document.getElementById("result").innerHTML =
+            "Predicted Fruit: " + best.className +
+            " (" + (best.probability * 100).toFixed(2) + "%)";
+
+        const labelContainer =
+            document.getElementById("label-container");
+
+        labelContainer.innerHTML = "";
+
+        predictions.forEach(p => {
+
+            const percentage =
+                (p.probability * 100).toFixed(2);
+
+            labelContainer.innerHTML += `
+                <div class="prediction">
+                    ${p.className}: ${percentage}%
+                </div>
+            `;
+
+        });
+
+    }
+
+</script>
+
+</body>
+</html>
